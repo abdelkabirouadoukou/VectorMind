@@ -4,7 +4,6 @@ venv/
 *.pyc
 
 # AI Models (They are too big for GitHub)
-models/
 huggingface_cache/
 *.bin
 *.pt

@@ -80,7 +80,6 @@ def fine_tune_model(
     # Configuration for local laptop/CPU-friendly training
     training_args = TrainingArguments(
         output_dir=output_dir,
-        overwrite_output_dir=True,
         num_train_epochs=1,                  # Keep it short for local testing
         per_device_train_batch_size=4,       # Low batch size to fit in 8GB-16GB RAM
         save_steps=500,

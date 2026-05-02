@@ -28,17 +28,24 @@ def generate_text(generator, prompt: str, max_length: int = 150) -> str:
     Takes a string prompt and returns AI-generated text using professional 
     sampling parameters (temperature=0.8, top_k=50).
     """
+    # For a raw base model, formatting the prompt slightly helps it continue the text
+    formatted_prompt = f"Professeur Moncef: {prompt}\n"
+    
     results = generator(
-        prompt,
+        formatted_prompt,
         max_length=max_length,
         num_return_sequences=1,
         do_sample=True,
-        temperature=0.8,
+        temperature=0.6,          # Lower temperature to make it less random
         top_k=50,
-        pad_token_id=generator.tokenizer.eos_token_id
+        repetition_penalty=1.2,   # Punish the model for repeating "++++" or "vous-vous"
+        pad_token_id=generator.tokenizer.eos_token_id,
+        clean_up_tokenization_spaces=False
     )
     # The pipeline returns a list of dicts. We extract the generated text.
-    return results[0]["generated_text"]
+    text = results[0]["generated_text"]
+    # Strip the prompt formatting out of the final display
+    return text[len(formatted_prompt):].strip()
 
 def chat_loop():
     """
