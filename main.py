@@ -1,68 +1,78 @@
-import torch
-from transformers import pipeline, set_seed
+import os
+from huggingface_hub import hf_hub_download
+from llama_cpp import Llama
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 
-import os
-
-# Initialize rich console for UI
 console = Console()
 
-def load_model(model_name: str = "distilgpt2"):
-    """
-    Loads the text generation pipeline locally.
-    Uses the fine-tuned VectorMind model if it exists, otherwise falls back to distilgpt2.
-    """
-    # Check if the fine-tuned model exists
-    if os.path.exists("./models/VectorMind_v1"):
-        model_name = "./models/VectorMind_v1"
-        
-    with console.status(f"[bold green]Loading {model_name} model locally (this may take a moment)..."):
-        # device=-1 explicitly forces CPU, adjust to 0 for CUDA if available
-        generator = pipeline('text-generation', model=model_name, device=-1)
-    return generator
-
-def generate_text(generator, prompt: str, max_length: int = 150) -> str:
-    """
-    Takes a string prompt and returns AI-generated text using professional 
-    sampling parameters (temperature=0.8, top_k=50).
-    """
-    # For a raw base model, formatting the prompt slightly helps it continue the text
-    formatted_prompt = f"Professeur Moncef: {prompt}\n"
+def load_knowledge():
+    """Reads the Professeur Moncef knowledge base to use as a System Prompt."""
+    file_path = "data/knowledge.md"
+    if not os.path.exists(file_path):
+        return "You are a highly logical and rigorous AI assistant."
     
-    results = generator(
-        formatted_prompt,
-        max_length=max_length,
-        num_return_sequences=1,
-        do_sample=True,
-        temperature=0.6,          # Lower temperature to make it less random
-        top_k=50,
-        repetition_penalty=1.2,   # Punish the model for repeating "++++" or "vous-vous"
-        pad_token_id=generator.tokenizer.eos_token_id,
-        clean_up_tokenization_spaces=False
+    with open(file_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+def load_thinking_model():
+    """
+    Downloads and loads a highly compressed 1.5B 'Thinking' model.
+    Q4_K_M means it's compressed to 4-bit, taking only ~1.1 GB of RAM!
+    """
+    model_repo = "unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF"
+    model_filename = "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf"
+    
+    with console.status(f"[bold green]Finding or downloading {model_filename} (1.1 GB total)..."):
+        # Automatically downloads and caches the model file
+        model_path = hf_hub_download(repo_id=model_repo, filename=model_filename)
+        
+        # Load the model with optimizations for an i5 (4 cores)
+        # n_ctx=2048 limits the memory usage so it easily fits in 8GB RAM
+        llm = Llama(
+            model_path=model_path,
+            n_ctx=2048,      # Maximum context window (input + output size)
+            n_threads=4,     # Your i5 has 4 cores
+            verbose=False    # Hides the messy C++ debug logs
+        )
+    return llm
+
+def generate_thought_response(llm, system_prompt: str, user_input: str):
+    """
+    Feeds the system prompt (knowledge) and user prompt to the model.
+    """
+    # Instruct the AI to roleplay as Professeur Moncef using his corpus
+    full_instruction = f"Roleplay as Professeur Moncef. Follow his exact philosophy and tone found here:\n\n{system_prompt}"
+    
+    # DeepSeek-R1 expects a specific chat structure with a system prompt
+    prompt = f"<|im_start|>system\n{full_instruction}<|im_end|>\n<|im_start|>user\n{user_input}<|im_end|>\n<|im_start|>assistant\n"
+    
+    results = llm(
+        prompt,
+        max_tokens=600,
+        stop=["<|im_end|>"],
+        temperature=0.6,
+        top_k=40,
+        echo=False
     )
-    # The pipeline returns a list of dicts. We extract the generated text.
-    text = results[0]["generated_text"]
-    # Strip the prompt formatting out of the final display
-    return text[len(formatted_prompt):].strip()
+    
+    return results["choices"][0]["text"]
 
 def chat_loop():
-    """
-    Implements a rich-based terminal loop that allows the user 
-    to chat with the model until they type 'exit'.
-    """
+    system_prompt = load_knowledge()
+    
     welcome_text = (
-        "[cyan]Your fully local, offline text generation engine.[/cyan]\n"
-        "Model: [bold]distilgpt2[/bold]\n"
+        "[cyan]VectorMind: DeepSeek-R1-1.5B (Thinking Model)[/cyan]\n"
+        "Persona: [bold yellow]Professeur Moncef[/bold yellow]\n"
         "Type [bold red]'exit'[/bold red] to quit."
     )
-    console.print(Panel.fit(welcome_text, title="🚀 [bold blue]Welcome to VectorMind[/bold blue]", border_style="blue"))
+    console.print(Panel.fit(welcome_text, title="🚀 [bold blue]Welcome to VectorMind Reasoning[/bold blue]", border_style="blue"))
     
-    generator = load_model()
+    llm = load_thinking_model()
     
     while True:
-        user_input = Prompt.ask("\n[bold yellow]You[/bold yellow]")
+        user_input = Prompt.ask("\n[bold yellow]Étudiant[/bold yellow]")
         
         if user_input.strip().lower() == 'exit':
             console.print("[bold red]Exiting VectorMind. Goodbye![/bold red]")
@@ -71,13 +81,10 @@ def chat_loop():
         if not user_input.strip():
             continue
 
-        with console.status("[bold green]VectorMind is generating text..."):
-            response = generate_text(generator, user_input)
-        
-        console.print(Panel(response, title="[bold magenta]VectorMind[/bold magenta]", border_style="magenta"))
+        with console.status("[bold magenta]Professeur Moncef is thinking (this may take a few moments on an i5)..."):
+            response = generate_thought_response(llm, system_prompt, user_input)
+            
+        console.print(Panel(response, title="[bold magenta]Professeur Moncef[/bold magenta]", border_style="magenta"))
 
 if __name__ == "__main__":
-    # Ensure reproducible results, optional but good practice
-    set_seed(42)
-    # Launch chat loop
     chat_loop()
